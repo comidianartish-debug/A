@@ -1,0 +1,176 @@
+name: Build Debug APK & Release
+
+on:
+  push:
+    branches: [ main, master, develop ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  GRADLE_VERSION: "8.9"
+
+jobs:
+  build:
+    name: Build Debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Download Gradle wrapper JAR
+        run: |
+          mkdir -p gradle/wrapper
+          curl -fsSL \
+            "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" \
+            -o /tmp/gradle.zip
+          unzip -q /tmp/gradle.zip -d /tmp/gradle-dist
+          GRADLE_HOME="/tmp/gradle-dist/gradle-${GRADLE_VERSION}"
+          "$GRADLE_HOME/bin/gradle" wrapper \
+            --gradle-version "${GRADLE_VERSION}" \
+            --distribution-type bin \
+            -p "$(pwd)" \
+            --no-daemon 2>/dev/null || true
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "Falling back to direct JAR download…"
+            curl -fsSL \
+              "https://raw.githubusercontent.com/gradle/gradle/v${GRADLE_VERSION}.0/gradle/wrapper/gradle-wrapper.jar" \
+              -o gradle/wrapper/gradle-wrapper.jar 2>/dev/null || \
+            curl -fsSL \
+              "https://github.com/gradle/gradle/raw/v${GRADLE_VERSION}.0/gradle/wrapper/gradle-wrapper.jar" \
+              -o gradle/wrapper/gradle-wrapper.jar 2>/dev/null || true
+          fi
+          ls -lh gradle/wrapper/
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.android/build-cache
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle.kts', '**/gradle-wrapper.properties', '**/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
+
+      - name: Compute APK metadata
+        id: meta
+        run: |
+          VERSION_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1 || echo "1.0.0")
+          BUILD_NUMBER=${{ github.run_number }}
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          APK_SRC="app/build/outputs/apk/debug/app-debug.apk"
+          APK_DST="TicTacToePro-debug-v${VERSION_NAME}-build${BUILD_NUMBER}-${SHORT_SHA}.apk"
+          cp "$APK_SRC" "$APK_DST"
+          APK_SIZE=$(du -sh "$APK_DST" | cut -f1)
+          echo "apk_path=$APK_DST"        >> $GITHUB_OUTPUT
+          echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+          echo "short_sha=$SHORT_SHA"       >> $GITHUB_OUTPUT
+          echo "apk_size=$APK_SIZE"         >> $GITHUB_OUTPUT
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-apk
+          path: ${{ steps.meta.outputs.apk_path }}
+          retention-days: 30
+
+      # ── Rolling "latest" pre-release on every push to main ──────────────
+      - name: Create or update rolling latest release (main branch)
+        if: github.ref == 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Latest Debug Build #${{ steps.meta.outputs.build_number }}"
+          tag_name: latest-debug
+          draft: false
+          prerelease: true
+          body: |
+            ## 🔄 Automatic Debug Build — Latest
+
+            | Field | Value |
+            |-------|-------|
+            | Branch | `main` |
+            | Build | `#${{ steps.meta.outputs.build_number }}` |
+            | Commit | `${{ steps.meta.outputs.short_sha }}` |
+            | APK Size | `${{ steps.meta.outputs.apk_size }}` |
+            | Type | **Debug APK** (pre-release) |
+
+            > Automatically updated on every push to `main`.
+            > For stable tagged releases, push a version tag such as `v1.0.0`.
+
+            ### ⚠️ Debug Build Notice
+            This is a debug APK — not obfuscated, contains debug symbols.
+            Suitable for testing only. Do not distribute via Play Store.
+
+            ### 📥 Install
+            1. Enable **Install from unknown sources** on your device
+            2. Download the APK below
+            3. Open the file on your device to install
+          files: ${{ steps.meta.outputs.apk_path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Stable versioned release on every `v*` tag push ────────────────
+      - name: Create stable GitHub Release (version tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Tic-Tac-Toe Pro v${{ steps.meta.outputs.version_name }} (Build #${{ steps.meta.outputs.build_number }})"
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## 🏆 Tic-Tac-Toe Pro — Debug Release
+
+            | Field | Value |
+            |-------|-------|
+            | Version | `${{ steps.meta.outputs.version_name }}` |
+            | Build | `#${{ steps.meta.outputs.build_number }}` |
+            | Commit | `${{ steps.meta.outputs.short_sha }}` |
+            | APK Size | `${{ steps.meta.outputs.apk_size }}` |
+            | Type | **Debug APK** |
+
+            ### ⚠️ Debug Build Notice
+            This is a debug APK and is not obfuscated. Suitable for testing.
+
+            ### 📥 Install
+            1. Enable **Install from unknown sources** on your device
+            2. Download the APK below
+            3. Open the file on your device to install
+
+            ### ✨ What's Included
+            - 6 game modes (vs AI, Local 2P, Ultimate, Gravity, Blitz, Puzzle)
+            - 5 board sizes (3×3 → 8×8)
+            - 10 AI difficulty levels with Minimax + alpha-beta pruning
+            - 40+ achievements with progress tracking
+            - Full statistics with game history
+            - 10 visual themes (Material You, Neon, Retro, Glassmorphism…)
+            - Puzzle mode with 6 hand-crafted challenges
+            - Haptic feedback, sound, and smooth animations
+            - Room database for offline persistence
+            - DataStore preferences
+          files: ${{ steps.meta.outputs.apk_path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

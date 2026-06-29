@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Tic-Tac-Toe Pro</string>
+    <string name="game_mode_vs_ai">vs AI</string>
+    <string name="game_mode_2p">2 Players</string>
+    <string name="play_now">Play Now</string>
+    <string name="statistics">Statistics</string>
+    <string name="achievements">Achievements</string>
+    <string name="settings">Settings</string>
+    <string name="player_x_wins">Player X Wins!</string>
+    <string name="player_o_wins">Player O Wins!</string>
+    <string name="its_a_draw">It\'s a Draw!</string>
+    <string name="play_again">Play Again</string>
+    <string name="ai_thinking">AI is thinking…</string>
+    <string name="your_turn">Your Turn</string>
+    <string name="back">Back</string>
+    <string name="restart">Restart</string>
+    <string name="undo">Undo</string>
+</resources>

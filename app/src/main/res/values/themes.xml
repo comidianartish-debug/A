@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.TicTacToePro" parent="android:Theme.Material.NoTitleBar.Fullscreen" />
+
+    <style name="Theme.TicTacToePro.SplashScreen" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/Theme.TicTacToePro</item>
+    </style>
+</resources>
